@@ -35,17 +35,6 @@ def bezier_cubique(p0, p1, p2, p3, t):
     )
 
 
-def bezier_casteljau(points, t):
-    """Algorithme de De Casteljau pour n points de controle (utilise si n > 4)."""
-    n = len(points)
-    courant = np.repeat(points[None, :, :], len(t), axis=0)
-    u = 1.0 - t[:, None, None]
-    t_col = t[:, None, None]
-    for k in range(1, n):
-        courant = u * courant[:, :-1, :] + t_col * courant[:, 1:, :]
-    return courant[:, 0, :]
-
-
 def segment_hermite(m0, t0, m1, t1, t):
     """Segment d'Hermite entre les centres m0 et m1 avec les tangentes t0 et t1."""
     t2 = t ** 2
@@ -139,7 +128,7 @@ class InterpolationModel:
 
 
     def draw_bezier(self):
-        """Trace une courbe de Bezier (lineaire, quadratique, cubique ou De Casteljau si > 4 points)."""
+        """Trace une courbe de Bezier : lineaire (2 pts), quadratique (3 pts) ou cubique (4 pts)."""
         n = len(self.points)
         if n < 2:
             return
@@ -151,10 +140,9 @@ class InterpolationModel:
             courbe = bezier_lineaire(pts[0], pts[1], t)
         elif n == 3:
             courbe = bezier_quadratique(pts[0], pts[1], pts[2], t)
-        elif n == 4:
-            courbe = bezier_cubique(pts[0], pts[1], pts[2], pts[3], t)
         else:
-            courbe = bezier_casteljau(pts, t[:, 0])
+            # A partir de 4 points, on trace la Bezier cubique sur les 4 premiers points
+            courbe = bezier_cubique(pts[0], pts[1], pts[2], pts[3], t)
 
         self._tracer_polyligne(courbe)
         return courbe
