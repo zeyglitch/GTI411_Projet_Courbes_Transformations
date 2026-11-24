@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 
 COULEUR_COURBE = (255, 255, 0)    # jaune (RGB)
@@ -54,56 +55,6 @@ def segment_hermite(m0, t0, m1, t1, t):
     h01 = -2.0 * t3 + 3.0 * t2
     h11 = t3 - t2
     return h00 * m0 + h10 * t0 + h01 * m1 + h11 * t1
-
-
-def spline_cubique_naturelle(points, nb_par_segment=50):
-    """Spline cubique naturelle C2 parametree par la longueur de corde cumulee u.
-
-    On interpole x(u) et y(u) separement pour que la courbe fonctionne meme si on
-    clique de droite a gauche ou a la verticale.
-    """
-    pts = np.asarray(points, dtype=float)
-    n = len(pts)
-    if n < 2:
-        return pts
-    if n == 2:
-        t = np.linspace(0.0, 1.0, nb_par_segment)[:, None]
-        return bezier_lineaire(pts[0], pts[1], t)
-
-    # Pas h_i = distance entre deux points consecutifs (min 1e-6 si deux clics au meme endroit)
-    diffs = np.diff(pts, axis=0)
-    h = np.hypot(diffs[:, 0], diffs[:, 1])
-    h = np.maximum(h, 1e-6)
-
-    # Systeme tridiagonal pour les derivees secondes M_i (conditions naturelles : M_0 = M_{n-1} = 0)
-    A = np.zeros((n, n), dtype=float)
-    B = np.zeros((n, 2), dtype=float)
-    A[0, 0] = 1.0
-    A[-1, -1] = 1.0
-
-    for i in range(1, n - 1):
-        A[i, i - 1] = h[i - 1]
-        A[i, i] = 2.0 * (h[i - 1] + h[i])
-        A[i, i + 1] = h[i]
-        B[i] = 6.0 * ((pts[i + 1] - pts[i]) / h[i] - (pts[i] - pts[i - 1]) / h[i - 1])
-
-    M = np.linalg.solve(A, B)
-
-    # Evaluation de chaque morceau cubique S_i(u) sur [0, h_i]
-    morceaux = []
-    for i in range(n - 1):
-        hi = h[i]
-        s = np.linspace(0.0, hi, nb_par_segment, endpoint=(i == n - 2))[:, None]
-        reste = hi - s
-        courbe_i = (
-            (reste ** 3) / (6.0 * hi) * M[i]
-            + (s ** 3) / (6.0 * hi) * M[i + 1]
-            + (pts[i] - (hi ** 2) / 6.0 * M[i]) * (reste / hi)
-            + (pts[i + 1] - (hi ** 2) / 6.0 * M[i + 1]) * (s / hi)
-        )
-        morceaux.append(courbe_i)
-
-    return np.vstack(morceaux)
 
 
 class InterpolationModel:
@@ -246,11 +197,24 @@ class InterpolationModel:
 
 
     def draw_spline(self):
-        """Trace une spline cubique naturelle de degre 3 passant par tous les points."""
-        if len(self.points) < 2:
+        """Trace une spline cubique de degre 3 avec scipy.interpolate.CubicSpline."""
+        n = len(self.points)
+        if n < 2:
             return
 
-        courbe = spline_cubique_naturelle(self.points, nb_par_segment=NB_POINTS_COURBE // 2)
+        pts = np.asarray(self.points, dtype=float)
+        if n == 2:
+            self.draw_linear()
+            return
+
+        # Parametrisation par la distance cumulee u pour pouvoir cliquer dans n'importe quel sens
+        diffs = np.diff(pts, axis=0)
+        pas = np.maximum(np.hypot(diffs[:, 0], diffs[:, 1]), 1e-6)
+        u = np.concatenate(([0.0], np.cumsum(pas)))
+
+        spline = CubicSpline(u, pts, bc_type="natural")
+        u_fin = np.linspace(0.0, u[-1], NB_POINTS_COURBE * (n - 1) // 2)
+        courbe = spline(u_fin)
         self._tracer_polyligne(courbe)
         
     def get_canvas(self):
